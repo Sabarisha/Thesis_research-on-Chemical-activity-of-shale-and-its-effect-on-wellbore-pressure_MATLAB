@@ -1,0 +1,219 @@
+G=760; %shear modulus in MPa
+nu=0.22; % poisson ratio
+alpha=0.96; %pore pressure coefficient
+Minv=1/9050; % storage coefficient in 1/MPa
+por=0.19; %porosity
+rho=2.37; %grain density in g/cc
+perm=1*power(10,-20); %permeability in sq m
+vis=2.74*power(10,-15); %viscosity in MPa.s
+kappa=perm/vis; %kappa
+refcoeff=0.8; %reflection coeffficient
+Deff_a=9.6*power(10,-12); %eff diffusion coefficient of anions m2/s
+Deff_c=1.47*power(10,-11); %eff diffusion coefficinet of cations m2/s
+CEC=0; % cation exchange capacity in meq/100 grams   
+%%% formula to calculate CEC(meq/100 grams) = (0.7* %clay)+ (3.5* % OC)----ref:surface
+%%% chemistry and ion exchaneg
+af=0.90; %pore fluid activity
+afmud=0.93; %mud activity
+vf=0.018; %in litre per mol
+mfc=10*CEC*(1-por)*rho*vf/(por*1000); %mole fraction of fixed charges on shale
+mmud=(1-afmud)/2; %%%mole fraction of salt in mud
+ma=0.5*(-mfc+((mfc*mfc)+(4*mmud*mmud))^(0.5)); % mole fraction of the
+%anions in the fluid ma=0.0052; %
+mc=0.5*(mfc+((mfc*mfc)+(4*mmud*mmud))^(0.5)); % mole fraction of the
+ %cations in the fluid mc=0.0771; 
+mamud=mmud; %anion concentration in mud
+mcmud=mmud; %cation concentration in mud
+r=0.1;
+rw=0.1; %radius of the wellbore in m
+Sx=58.8; %stress in x in MPa
+Sy=58.8; %stress in y in MPa
+Sz=73.5; %stress in z in MPa
+Sxy=0;
+Syz=0;
+Sxz=0;
+p=29.4; %pore pressure in MPa
+ht=2940; %height of the formation in m
+azi_angle=0;
+incli_angle=0;
+temp=373.15; %in kelvin
+mud_SG=1.07; %specific gravity of mud
+mudrho=mud_SG*1000;
+pmud=mudrho*9.81*ht*power(10,-6);
+R=8.314*10^(-3); %gas constant in L MPa k-1 mol-1
+lumped_coeff=(alpha*(1-(2*nu)))/(2*(1-nu));
+
+%%%% forming D matrix
+D11=kappa;
+D12=(-refcoeff*kappa);
+D13=D12;
+D21=(ma*(1-refcoeff)*kappa);
+D22=(Deff_a*(vf/(R*temp))-(ma*(1-refcoeff)*refcoeff*kappa));
+D23=-D21*refcoeff;
+D31=(mc*(1-refcoeff)*kappa);
+D32=-D31*refcoeff;
+D33=(Deff_c*(vf/(R*temp))-(mc*(1-refcoeff)*refcoeff*kappa));
+D=[D11 D12 D13; D21 D22 D23; D31 D32 D33]; %D matrix on the paper with units sq m per MPa per s
+
+%%%% forming Y matrix
+Y11=(Minv+(alpha*lumped_coeff/G));
+Y12=0;
+Y13=0;
+Y21=ma*Y11;
+Y22=((por*vf)/(R*temp));
+Y23=0;
+Y31=mc*Y11;
+Y32=0;
+Y33=((por*vf)/(R*temp));
+y=[Y11 Y12 Y13; Y21 Y22 Y23; Y31 Y32 Y33]; %y matrix on the paper
+Y=inv(y); %Y-1 in the paper
+
+%%%% Z matrix
+Z=Y*D; % Z matrix required
+lambda=eig(Z); % eigen values
+[V,DD]=eig(Z); %m is eigen vector and DD diag matrix with eigen values along the matrix
+T=[1 ma mc];
+f=(alpha*Y*transpose(T));
+
+%%% stresses
+sigma_m=((Sx+Sy)/2);
+sigma_d=(0.5*sqrt(((Sx-Sy)^(2))+(4*Sxy^2)));
+theta_r=0;     %(0.5*atand(2*Sxy/(Sx-Sy)))
+
+%%%declaring parameters used inside the loop
+dpms=((R*temp/vf)*(ma+mc-(2*mmud)));
+dmams=ma-mamud;
+dmcms=mc-mcmud;
+dp=pmud+dpms-p;
+dpa=((R*temp/vf)*(mmud+dmams-ma));
+dpc=((R*temp/vf)*(mmud+dmcms-mc));
+m=(V(1,1)*(V(2,2)*V(3,3)-V(2,3)*V(3,2)))-(V(1,2)*(V(2,1)*V(3,3)-V(2,3)*V(3,1)))+(V(1,3)*(V(2,1)*V(3,2)-V(2,2)*V(3,1)));
+del1=(((V(2,2)*V(3,3)-V(2,3)*V(3,2))*dp)+((V(1,3)*V(3,2)-V(1,2)*V(3,3))*dpa)+((V(1,2)*V(2,3)-V(1,3)*V(2,2))*dpc))/m;
+del2=(((V(2,3)*V(3,1)-V(2,1)*V(3,3))*dp)+((V(1,1)*V(3,3)-V(1,3)*V(3,1))*dpa)+((V(1,3)*V(2,1)-V(1,1)*V(2,3))*dpc))/m;
+del3=(((V(2,1)*V(3,2)-V(2,2)*V(3,1))*dp)+((V(1,2)*V(3,1)-V(1,1)*V(3,2))*dpa)+((V(1,1)*V(2,2)-V(1,2)*V(2,1))*dpc))/m;
+
+% for finding An
+A=zeros(8,1);
+L=8;
+nn2 = L/2;
+for n = 1:L
+    z = 0;
+    for k = floor( ( n + 1 ) / 2 ):min(n,nn2)
+        z = z + (((k^nn2)*factorial(2*k))/(factorial(nn2-k)*factorial(k)*factorial(k-1)*factorial(n-k)*factorial((2*k) - n)));
+    end
+    A(n,1)=(-1)^(n+nn2)*z;
+end
+
+%%%%for calculating the final equations
+e1=zeros(8,1);
+e2=zeros(8,1);
+e3=zeros(8,1);
+si1=zeros(8,12);
+%si2=zeros(8,6);
+%si3=zeros(8,6);
+ki1=zeros(8,12);
+%ki2=zeros(8,12);
+%ki3=zeros(8,12);
+p2=zeros(8,12);
+p2_sum=zeros(1,12);
+p_tot=zeros(1,12);
+pa2=zeros(8,12);
+pa2_sum=zeros(1,12);
+pa_tot=zeros(1,12);
+pc2=zeros(8,12);
+pc2_sum=zeros(1,12);
+pc_tot=zeros(1,12);
+pore_press=zeros(1,12);
+pa_press=zeros(1,12);
+pc_press=zeros(1,12);
+effrad_s2=zeros(8,12);
+effrad_s2sum=zeros(1,12);
+effrad_stot=zeros(1,12);
+efftan_s2=zeros(8,12);
+efftan_s2sum=zeros(1,12);
+efftan_stot=zeros(1,12);
+effrad_s1=zeros(1,12);
+efftan_s1=zeros(1,12);
+mean_s=zeros(1,12);
+sigma_zz=zeros(1,12);
+sz=zeros(1,12);
+nusigm=zeros(1,12);
+tau_rtheta=0;
+tau_rz=0;
+tau_thetaz=0;
+
+t=0.01;
+c1=(log(2))/(t*lambda(1)); %constant part of epsilon1 values
+c2=(log(2))/(t*lambda(2)); %constant part of epsilon2 values
+c3=(log(2))/(t*lambda(3));  %%constant part of epsilon3 values
+
+for j=1:12
+for n=1:L
+    e1(n,1)=sqrt(n*c1);
+e2(n,1)=sqrt(n*c2);
+e3(n,1)=sqrt(n*c3);
+si1(n,j)= besselk(0,(e1(n,1)*r))/besselk(0,(e1(n,1)*rw));
+%si2(n,j)= besselk(0,(e2(n,1)*r))/besselk(0,(e2(n,1)*rw));
+%si3(n,j)= besselk(0,(e3(n,1)*r))/besselk(0,(e3(n,1)*rw));
+ki1(n,j)=((besselk(1,(e1(n,1)*r)))/(e1(n,1)*r*besselk(0,(e1(n,1)*rw))))-((rw*besselk(1,e1(n,1)*rw))/(e1(n,1)*r*r*besselk(0,e1(n,1)*rw)));
+%ki2(n,j)=((besselk(1,(e2(n,1)*r)))/(e2(n,1)*r*besselk(0,(e2(n,1)*rw))))-((rw*besselk(1,e2(n,1)*rw))/(e2(n,1)*r*r*besselk(0,e2(n,1)*rw)));
+%ki3(n,j)=((besselk(1,(e3(n,1)*r)))/(e3(n,1)*r*besselk(0,(e3(n,1)*rw))))-((rw*besselk(1,e3(n,1)*rw))/(e3(n,1)*r*r*besselk(0,e3(n,1)*rw)));
+p2(n,j)=(t/(n*log(2)))*((V(1,1)*del1*si1(n,j))); %(V(1,2)*del2*si2(n,j))+(V(1,3)*del3*si3(n,j)));  
+pa2(n,j)=(t/(n*log(2)))*((V(2,1)*del1*si1(n,j)));
+pc2(n,j)=(t/(n*log(2)))*((V(3,1)*del1*si1(n,j)));
+p2_sum(1,j)=p2_sum(1,j)+(A(n,1)*p2(n,j));
+pa2_sum(1,j)=pa2_sum(1,j)+(A(n,1)*pa2(n,j));
+pc2_sum(1,j)=pc2_sum(1,j)+(A(n,1)*pc2(n,j));
+effrad_s2(n,j)=(t/(n*log(2)))*(-2*lumped_coeff)*((V(1,1)*del1*ki1(n,j)));
+efftan_s2(n,j)=(t/(n*log(2)))*(2*lumped_coeff)*(V(1,1)*del1*(ki1(n,j)+si1(n,j)));
+effrad_s2sum(1,j)=effrad_s2sum(1,j)+(A(n,1)*effrad_s2(n,j));
+efftan_s2sum(1,j)=efftan_s2sum(1,j)+(A(n,1)*efftan_s2(n,j));
+end
+pore_press(1,j)=29.4;
+pa_press(1,j)=((R*temp/vf)*ma);
+pc_press(1,j)=((R*temp/vf)*mc);
+p_tot(1,j)=(((log(2))/t)*p2_sum(1,j))+pore_press(1,j);
+pa_tot(1,j)=(((log(2))/t)*pa2_sum(1,j))+pa_press(1,j);
+pc_tot(1,j)=(((log(2))/t)*pc2_sum(1,j))+pc_press(1,j);
+mean_s(1,j)=sigma_m;
+sz(1,j)=Sz;
+nusigm(1,j)=(2*nu*sigma_m);
+effrad_s1(1,j)=(-(sigma_m-pmud)*rw*rw)/(r*r);
+efftan_s1(1,j)=((sigma_m-pmud)*rw*rw)/(r*r);
+effrad_stot(1,j)=(((log(2))/t)*effrad_s2sum(1,j))+mean_s(1,j)+effrad_s1(1,j);
+efftan_stot(1,j)=(((log(2))/t)*efftan_s2sum(1,j))+mean_s(1,j)+efftan_s1(1,j);
+sigma_zz(1,j)=(alpha*(1-2*nu)*(p_tot(1,j)-pore_press(1,j)))+nu*(effrad_stot(1,j)+efftan_stot(1,j))+sz(1,j)-nusigm(1,j);
+r=r+0.005;
+
+figure (1)
+plot(r/rw,p_tot(1,j),'--rs','LineWidth',2,...
+               'MarkerEdgeColor','m',...
+               'MarkerFaceColor','y',...
+               'MarkerSize',8)
+           hold all
+xlabel('r/rw','FontSize',8)
+ylabel('pore pressure p (MPa)','FontSize',8)
+grid on
+
+figure (2)
+plot(r/rw,effrad_stot(1,j)-p_tot(1,j),'--rs','LineWidth',2,...
+               'MarkerEdgeColor','m',...
+               'MarkerFaceColor','y',...
+               'MarkerSize',8)
+           hold all
+xlabel('r/rw','FontSize',8)
+ylabel('effective radial stress-p (MPa)','FontSize',8)
+grid on
+
+figure (3)
+plot(r/rw,efftan_stot(1,j)-p_tot(1,j),'--rs','LineWidth',2,...
+               'MarkerEdgeColor','m',...
+               'MarkerFaceColor','y',...
+               'MarkerSize',8)
+           hold all
+xlabel('r/rw','FontSize',8)
+ylabel('effective tangential stress-p (MPa)','FontSize',8)
+grid on
+end
+
+
